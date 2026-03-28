@@ -56,7 +56,7 @@
         const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
         const recognition = new SpeechRecognition();
         recognition.lang = 'ja-JP';
-        recognition.continuous = true;
+        recognition.continuous = false;
 
         // 音声取得時の処理
         recognition.onresult = (event) => {
