@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>藤原家の買い物リスト</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+    <h1>藤原家の買い物リスト</h1>
+    <p id="status">接続を確認中...</p>
+
+    <div class="input-form">
+        <input type="text" id="item-input" placeholder="買うものを入力...">
+        <button id="add-btn">追加</button>
+    </div>
+
+    <div class="list-card">
+        <div id="shopping-list">
+            </div>
+        <button id="delete-btn">チェックした項目を削除</button>
+    </div>
+
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
+        import { getDatabase, ref, push, onChildAdded, remove, onChildRemoved, onChildChanged, update, onValue } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js";
+
+        // Firebase設定
+        const firebaseConfig = {
+            apiKey: "AIzaSyApNpg5fm9Myw_8nnZbkWMiM-QqPmjlCzs",
+            authDomain: "my-shopping-list-da188.firebaseapp.com",
+            projectId: "my-shopping-list-da188",
+            storageBucket: "my-shopping-list-da188.firebasestorage.app",
+            messagingSenderId: "526665051615",
+            appId: "1:526665051615:web:9e25c53ad5413fe9e6e86a",
+            measurementId: "G-FWB9BKBJ4C",
+            databaseURL: "https://my-shopping-list-da188-default-rtdb.firebaseio.com"
+        };
+
+        const app = initializeApp(firebaseConfig);
+        const db = getDatabase(app);
+        const dbRef = ref(db, 'shoppingList');
+
+        const itemInput = document.getElementById('item-input');
+        const addBtn = document.getElementById('add-btn');
+        const deleteBtn = document.getElementById('delete-btn');
+        const listContainer = document.getElementById('shopping-list');
+        const statusText = document.getElementById('status');
+
+        onValue(dbRef, () => {
+            statusText.innerText = "接続完了：待機中...";
+            statusText.style.color = "#28a745";
+        });
+
+        // --- 音声認識の設定 (ラズパイの物理ボタン連動用) ---
+        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+        const recognition = new SpeechRecognition();
+        recognition.lang = 'ja-JP';
+        recognition.continuous = false;
+
+        recognition.onresult = (event) => {
+            const text = event.results[0][0].transcript.trim();
+            if (text) {
+                // そのまま1つの項目として登録
+                push(dbRef, { text: text, checked: false });
+                statusText.innerText = "音声追加: " + text;
+            }
+        };
+
+        // --- WebSocket連携 (ラズパイ制御サーバーと接続) ---
+        const socket = new WebSocket('ws://localhost:8765');
+
+        socket.onmessage = (event) => {
+            const data = JSON.parse(event.data);
+            if (data.command === 'START') {
+                recognition.start();
+                statusText.innerText = "🎤 録音中...";
+                statusText.style.color = "#dc3545";
+            } else if (data.command === 'STOP') {
+                recognition.stop();
+                statusText.innerText = "待機中...";
+                statusText.style.color = "#555";
+            }
+        };
+
+        // --- 手入力ロジック ---
+        const addItem = () => {
+            const text = itemInput.value.trim();
+            if (text) {
+                // そのまま1つの項目として登録
+                push(dbRef, { text: text, checked: false });
+                itemInput.value = "";
+                itemInput.focus();
+                statusText.innerText = "追加しました";
+            }
+        };
+
+        addBtn.onclick = addItem;
+        itemInput.onkeypress = (e) => { if (e.key === 'Enter') addItem(); };
+
+        // --- Firebase同期 (表示管理) ---
+        onChildAdded(dbRef, (data) => {
+            addItemToDOM(data.val().text, data.key);
+        });
+
+        onChildRemoved(dbRef, (data) => {
+            const element = document.getElementById(data.key);
+            if (element) element.remove();
+        });
+
+        onChildChanged(dbRef, (data) => {
+            const key = data.key;
+            const updatedText = data.val().text;
+            const element = document.getElementById(key);
+            if (element) element.querySelector('.item-text').innerText = updatedText;
+        });
+
+        function addItemToDOM(text, key) {
+            const div = document.createElement('div');
+            div.className = 'shopping-item';
+            div.id = key;
+            div.innerHTML = `
+                <label class="item-label">
+                    <input type="checkbox" class="item-check">
+                    <span class="item-text">${text}</span>
+                </label>
+                <button class="edit-btn">✏️</button>
+            `;
+            listContainer.appendChild(div);
+
+            const checkbox = div.querySelector('.item-check');
+            const span = div.querySelector('.item-text');
+            const editBtn = div.querySelector('.edit-btn');
+
+            checkbox.onchange = () => { span.classList.toggle('completed', checkbox.checked); };
+            editBtn.onclick = () => {
+                const newText = prompt("編集", span.innerText);
+                if (newText) update(ref(db, `shoppingList/${key}`), { text: newText.trim() });
+            };
+        }
+
+        deleteBtn.onclick = () => {
+            document.querySelectorAll('.item-check:checked').forEach(cb => {
+                remove(ref(db, `shoppingList/${cb.closest('.shopping-item').id}`));
+            });
+            statusText.innerText = "チェックした項目を削除しました";
+        };
+    </script>
+</body>
+</html>
