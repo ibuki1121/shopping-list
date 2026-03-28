@@ -44,64 +44,101 @@
         const db = getDatabase(app);
         const dbRef = ref(db, 'shoppingList');
 
-        // --- ここから script.js の中身に相当するロジック ---
-
+        // --- DOM要素の取得 ---
         const startBtn = document.getElementById('start-btn');
         const stopBtn = document.getElementById('stop-btn');
         const deleteBtn = document.getElementById('delete-btn');
         const listContainer = document.getElementById('shopping-list');
         const statusText = document.getElementById('status');
 
-        // 音声認識の設定
+        // --- 音声認識の設定 ---
         const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+        if (!SpeechRecognition) {
+            statusText.innerText = "音声認識非対応のブラウザです";
+        }
+
         const recognition = new SpeechRecognition();
         recognition.lang = 'ja-JP';
-        recognition.continuous = false;
+        recognition.continuous = false;      // スマホ安定のためfalse
+        recognition.interimResults = false; // 確定結果のみ
 
-        // 音声取得時の処理
+        // 音声認識：結果取得時
         recognition.onresult = (event) => {
-            const results = event.results;
-            const lastIndex = results.length - 1;
-            const text = results[lastIndex][0].transcript.trim();
+            const text = event.results[0][0].transcript.trim();
             if (text) {
-                // Firebaseにデータを送信
-                push(dbRef, { text: text, checked: false });
+                // 「と」や「、」で分割して保存
+                const items = text.split(/と|、| |・/);
+                items.forEach(item => {
+                    const trimmed = item.trim();
+                    if (trimmed) {
+                        push(dbRef, { text: trimmed, checked: false });
+                    }
+                });
                 statusText.innerText = "追加しました: " + text;
+                statusText.style.color = "#28a745";
             }
         };
 
-        // 録音開始
-        startBtn.onclick = () => {
-            recognition.start();
-            startBtn.disabled = true;
-            stopBtn.disabled = false;
-            statusText.innerText = "録音中... お話しください";
-            statusText.style.color = "#dc3545";
+        // 音声認識：エラー時
+        recognition.onerror = (event) => {
+            console.error("Speech Recognition Error:", event.error);
+            if (event.error === 'not-allowed') {
+                statusText.innerText = "マイクの使用が許可されていません";
+            } else {
+                statusText.innerText = "エラー: " + event.error;
+            }
+            updateButtonState(false);
         };
 
-        // 録音終了
+        // 音声認識：終了時
+        recognition.onend = () => {
+            console.log("Recognition ended.");
+            updateButtonState(false);
+            if (!statusText.innerText.includes("追加しました")) {
+                statusText.innerText = "待機中...";
+                statusText.style.color = "#555";
+            }
+        };
+
+        // ボタンの表示切り替え関数
+        function updateButtonState(isRecording) {
+            startBtn.disabled = isRecording;
+            stopBtn.disabled = !isRecording;
+        }
+
+        // 録音開始（手動ボタン）
+        startBtn.onclick = () => {
+            try {
+                recognition.start();
+                updateButtonState(true);
+                statusText.innerText = "録音中... はっきりお話しください";
+                statusText.style.color = "#dc3545";
+            } catch (e) {
+                console.error(e);
+            }
+        };
+
+        // 録音終了（手動ボタン）
         stopBtn.onclick = () => {
             recognition.stop();
-            startBtn.disabled = false;
-            stopBtn.disabled = true;
-            statusText.innerText = "終了しました";
-            statusText.style.color = "#555";
+            updateButtonState(false);
+            statusText.innerText = "認識中...";
         };
 
-        // Firebase 監視: 誰かがデータを追加した時
+        // --- Firebase 連携（リアルタイム同期） ---
+
+        // データ追加を検知
         onChildAdded(dbRef, (data) => {
-            const item = data.val();
-            const key = data.key;
-            addItemToDOM(item.text, key);
+            addItemToDOM(data.val().text, data.key);
         });
 
-        // Firebase 監視: 誰かがデータを削除した時
+        // データ削除を検知
         onChildRemoved(dbRef, (data) => {
             const element = document.getElementById(data.key);
             if (element) element.remove();
         });
 
-        // 画面に表示する関数
+        // リストを画面に描画
         function addItemToDOM(text, key) {
             const div = document.createElement('div');
             div.className = 'shopping-item';
@@ -121,7 +158,7 @@
             };
         }
 
-        // 削除ボタン
+        // 削除ボタン：チェック済みをFirebaseから消す
         deleteBtn.onclick = () => {
             const checkedBoxes = document.querySelectorAll('.item-check:checked');
             checkedBoxes.forEach(cb => {
@@ -129,8 +166,5 @@
                 const itemRef = ref(db, `shoppingList/${key}`);
                 remove(itemRef);
             });
-            statusText.innerText = "チェックした項目を削除しました";
+            statusText.innerText = "削除しました";
         };
-    </script>
-</body>
-</html>
