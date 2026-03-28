@@ -3,9 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>音声入力買い物リスト</title>
+    <title>藤原家の買い物リスト</title>
     <link rel="stylesheet" href="style.css">
-    <script src="script.js" defer></script>
 </head>
 <body>
 
@@ -23,5 +22,115 @@
         <button id="delete-btn">チェックした項目を削除</button>
     </div>
 
+    <script type="module">
+        // 1. Firebase SDKのインポート
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
+        import { getDatabase, ref, push, onChildAdded, remove, onChildRemoved } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js";
+
+        // 2. Firebase設定
+        const firebaseConfig = {
+            apiKey: "AIzaSyApNpg5fm9Myw_8nnZbkWMiM-QqPmjlCzs",
+            authDomain: "my-shopping-list-da188.firebaseapp.com",
+            projectId: "my-shopping-list-da188",
+            storageBucket: "my-shopping-list-da188.firebasestorage.app",
+            messagingSenderId: "526665051615",
+            appId: "1:526665051615:web:9e25c53ad5413fe9e6e86a",
+            measurementId: "G-FWB9BKBJ4C",
+            databaseURL: "https://my-shopping-list-da188-default-rtdb.firebaseio.com/"
+        };
+
+        // 3. 初期化
+        const app = initializeApp(firebaseConfig);
+        const db = getDatabase(app);
+        const dbRef = ref(db, 'shoppingList');
+
+        // --- ここから script.js の中身に相当するロジック ---
+
+        const startBtn = document.getElementById('start-btn');
+        const stopBtn = document.getElementById('stop-btn');
+        const deleteBtn = document.getElementById('delete-btn');
+        const listContainer = document.getElementById('shopping-list');
+        const statusText = document.getElementById('status');
+
+        // 音声認識の設定
+        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+        const recognition = new SpeechRecognition();
+        recognition.lang = 'ja-JP';
+        recognition.continuous = true;
+
+        // 音声取得時の処理
+        recognition.onresult = (event) => {
+            const results = event.results;
+            const lastIndex = results.length - 1;
+            const text = results[lastIndex][0].transcript.trim();
+            if (text) {
+                // Firebaseにデータを送信
+                push(dbRef, { text: text, checked: false });
+                statusText.innerText = "追加しました: " + text;
+            }
+        };
+
+        // 録音開始
+        startBtn.onclick = () => {
+            recognition.start();
+            startBtn.disabled = true;
+            stopBtn.disabled = false;
+            statusText.innerText = "録音中... お話しください";
+            statusText.style.color = "#dc3545";
+        };
+
+        // 録音終了
+        stopBtn.onclick = () => {
+            recognition.stop();
+            startBtn.disabled = false;
+            stopBtn.disabled = true;
+            statusText.innerText = "終了しました";
+            statusText.style.color = "#555";
+        };
+
+        // Firebase 監視: 誰かがデータを追加した時
+        onChildAdded(dbRef, (data) => {
+            const item = data.val();
+            const key = data.key;
+            addItemToDOM(item.text, key);
+        });
+
+        // Firebase 監視: 誰かがデータを削除した時
+        onChildRemoved(dbRef, (data) => {
+            const element = document.getElementById(data.key);
+            if (element) element.remove();
+        });
+
+        // 画面に表示する関数
+        function addItemToDOM(text, key) {
+            const div = document.createElement('div');
+            div.className = 'shopping-item';
+            div.id = key;
+            div.innerHTML = `
+                <label style="display: flex; align-items: center; width: 100%;">
+                    <input type="checkbox" class="item-check">
+                    <span class="item-text" style="margin-left: 10px;">${text}</span>
+                </label>
+            `;
+            listContainer.appendChild(div);
+
+            const checkbox = div.querySelector('.item-check');
+            const span = div.querySelector('.item-text');
+            checkbox.onchange = () => {
+                span.classList.toggle('completed', checkbox.checked);
+            };
+        }
+
+        // 削除ボタン
+        deleteBtn.onclick = () => {
+            const checkedBoxes = document.querySelectorAll('.item-check:checked');
+            checkedBoxes.forEach(cb => {
+                const key = cb.closest('.shopping-item').id;
+                const itemRef = ref(db, `shoppingList/${key}`);
+                remove(itemRef);
+            });
+            statusText.innerText = "チェックした項目を削除しました";
+        };
+    </script>
 </body>
 </html>
